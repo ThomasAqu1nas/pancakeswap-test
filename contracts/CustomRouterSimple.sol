@@ -209,13 +209,10 @@ function swapThenAddLiquidity(
 {
     require(msg.value == swapEthAmount + liquidityEthAmount, "CustomRouter: INVALID_ETH_AMOUNT");
 
-    // Выполняем свап указанного количества BNB на токены
     uint256 tokensReceived = swapEthForExactTokensInternal(token, minTokensOut, swapEthAmount, deadline);
 
-    // Одобряем расход полученных токенов для добавления ликвидности
     require(IERC20(token).approve(pancakeRouter, tokensReceived), "CustomRouter: APPROVAL_FAILED");
 
-    // Добавляем ликвидность, используя полученные токены и указанное количество BNB
     (amountToken, amountETH, liquidity) = IPancakeRouter(pancakeRouter).addLiquidityETH{value: liquidityEthAmount}(
         token,
         tokensReceived,
@@ -225,7 +222,6 @@ function swapThenAddLiquidity(
         deadline
     );
 
-    // Возвращаем излишки токенов отправителю
     if (tokensReceived > amountToken) {
         require(IERC20(token).transfer(msg.sender, tokensReceived - amountToken), "CustomRouter: REFUND_FAILED");
     }

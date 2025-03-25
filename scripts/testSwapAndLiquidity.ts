@@ -1,4 +1,3 @@
-// scripts/testSwapAndLiquidity.ts
 import { ethers } from "hardhat";
 import { CustomRouter__factory, IERC20__factory } from "../typechain-types";
 import { defaultSigner } from "./connection";
@@ -12,25 +11,40 @@ async function main() {
   const CustomRouter = CustomRouter__factory.connect(routerAddress, signer);
   const Token = IERC20__factory.connect(tokenAddress, signer);
 
-  const swapEthAmount = ethers.parseEther("0.1");
-  const expectedTokenOut = ethers.parseUnits("100", 18);
-  const tokenMin = ethers.parseUnits("95", 18);
-  const ethMin = ethers.parseEther("0.09");
-  const additionalEthForLiquidity = ethers.parseEther("0.2");
+  const factoryAddress = await CustomRouter.factory();
+  const WBNBAddress = await CustomRouter.WBNB();
+
+  const factoryABI = [
+    "function getPair(address tokenA, address tokenB) view returns (address pair)",
+  ];
+  const pancakeFactory = new ethers.Contract(
+    factoryAddress,
+    factoryABI,
+    signer
+  );
+  const pairAddress = await pancakeFactory.getPair(WBNBAddress, tokenAddress);
+
+  if (!pairAddress || pairAddress === ethers.ZeroAddress) {
+    console.error("❌ Pair for given tokens does not exist.");
+    process.exit(1);
+  }
+
+  // Создаем инстанс для токена пары
+  const lpTokenABI = ["function balanceOf(address) view returns (uint256)"];
+  const lpToken = new ethers.Contract(pairAddress, lpTokenABI, signer);
+
+  const initialLPBalance = await lpToken.balanceOf(signer.address);
+  console.log("Initial LP token balance:", initialLPBalance.toString());
+
+  // Для упрощенной функции swapThenAddLiquiditySimple ожидается, что пользователь отправляет 2 BNB:
+  // 1 BNB для свапа в USDT и 1 BNB для ликвидности
+  const totalETH = ethers.parseEther("2");
+
   const deadline = Math.floor(Date.now() / 1000) + 600;
 
-  const totalETH = swapEthAmount + additionalEthForLiquidity;
-
-  const initialTokenBalance = await Token.balanceOf(signer.address);
-
   try {
-    await CustomRouter.swapThenAddLiquidity.staticCall(
+    await CustomRouter.swapThenAddLiquiditySimple.staticCall(
       tokenAddress,
-      swapEthAmount,
-      expectedTokenOut,
-      tokenMin,
-      ethMin,
-      additionalEthForLiquidity,
       deadline,
       { value: totalETH }
     );
@@ -43,42 +57,29 @@ async function main() {
     process.exit(1);
   }
 
-  const gasEstimate = await CustomRouter.swapThenAddLiquidity.estimateGas(
+  const gasEstimate = await CustomRouter.swapThenAddLiquiditySimple.estimateGas(
     tokenAddress,
-    swapEthAmount,
-    expectedTokenOut,
-    tokenMin,
-    ethMin,
-    additionalEthForLiquidity,
     deadline,
     { value: totalETH }
   );
 
   const gasLimit = gasEstimate + gasEstimate / ethers.toBigInt(2);
 
-  const tx = await CustomRouter.swapThenAddLiquidity(
+  const tx = await CustomRouter.swapThenAddLiquiditySimple(
     tokenAddress,
-    swapEthAmount,
-    expectedTokenOut,
-    tokenMin,
-    ethMin,
-    additionalEthForLiquidity,
     deadline,
     { value: totalETH, gasLimit }
   );
-  console.log("swapThenAddLiquidity transaction sent:", tx.hash);
+  console.log("swapThenAddLiquiditySimple transaction sent:", tx.hash);
   await tx.wait();
 
-  const finalTokenBalance = await Token.balanceOf(signer.address);
+  const finalLPBalance = await lpToken.balanceOf(signer.address);
+  console.log("Final LP token balance:", finalLPBalance.toString());
 
-  if (initialTokenBalance > finalTokenBalance) {
-    console.log(
-      "✅ swapThenAddLiquidity successful. Tokens used for liquidity."
-    );
+  if (finalLPBalance > initialLPBalance) {
+    console.log("✅ swapThenAddLiquidity successful. LP tokens received.");
   } else {
-    console.error(
-      "❌ swapThenAddLiquidity failed or tokens were not used as expected."
-    );
+    console.error("❌ swapThenAddLiquidity failed or no LP tokens received.");
   }
 }
 

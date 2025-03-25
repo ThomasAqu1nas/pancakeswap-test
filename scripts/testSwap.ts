@@ -16,8 +16,8 @@ async function main() {
   const CustomRouter = CustomRouter__factory.connect(routerAddress, signer);
   const Token = await IERC20__factory.connect(tokenAddress, signer);
 
-  const swapEthAmount = ethers.parseEther("0.1");
-  const expectedTokenOut = ethers.parseUnits("100", 18);
+  const swapEthAmount = ethers.parseEther("10");
+  const expectedTokenOut = ethers.parseUnits("6300", 18);
   const deadline = Math.floor(Date.now() / 1000) + 600;
 
   const initialTokenBalance = await Token.balanceOf(signer.address);

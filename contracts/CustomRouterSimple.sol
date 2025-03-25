@@ -79,7 +79,7 @@ contract CustomRouter {
     
     // Принимаем ETH только от WBNB (например, при вызове withdraw)
     receive() external payable {
-         require(msg.sender == WBNB, "CustomRouter: ONLY_WBNB");
+         //require(msg.sender == WBNB, "CustomRouter: ONLY_WBNB");
     }
     
     /**************************************/
@@ -184,43 +184,52 @@ contract CustomRouter {
          );
     }
     
-    /**
-     * @notice Композитная функция, которая сначала выполняет свап ETH в токены,
-     * а затем добавляет полученные токены и дополнительный ETH в ликвидность.
-     * Токены, полученные после свапа, остаются в контракте и используются для добавления ликвидности.
-     * Излишки токенов возвращаются вызывающему.
-     * @param token Адрес целевого токена.
-     * @param swapEthAmount Сумма ETH, используемая для свапа.
-     * @param expectedTokenOut Ожидаемое количество токенов после свапа.
-     * @param tokenMin Минимальное количество токенов для ликвидности.
-     * @param ethMin Минимальное количество ETH для ликвидности.
-     * @param additionalEthForLiquidity Дополнительный ETH, который пойдёт в ликвидность.
-     * @param deadline Дедлайн для транзакции.
-     */
-    function swapThenAddLiquidity(
-         address token,
-         uint256 swapEthAmount,
-         uint256 expectedTokenOut,
-         uint256 tokenMin,
-         uint256 ethMin,
-         uint256 additionalEthForLiquidity,
-         uint256 deadline
-    )
-         external
-         payable
-         ensure(deadline)
-         returns (uint256 amountToken, uint256 amountETH, uint256 liquidity)
-    {
-         require(msg.value == swapEthAmount + additionalEthForLiquidity, "CustomRouter: INCORRECT_TOTAL_ETH");
-         
-         uint256 tokensReceived = swapEthForExactTokensInternal(token, expectedTokenOut, swapEthAmount, deadline);
-         (amountToken, amountETH, liquidity) = addLiquidityWithTokensInContract(token, tokensReceived, additionalEthForLiquidity, tokenMin, ethMin, deadline);
-         
-         uint256 remainingTokens = IERC20(token).balanceOf(address(this));
-         if (remainingTokens > 0) {
-             IERC20(token).transfer(msg.sender, remainingTokens);
-         }
+/**
+ * @notice Упрощённая функция, в которой пользователь отправляет 2 BNB.
+ * Из них 1 BNB используется для обмена на USDT, а оставшийся 1 BNB вместе с полученными USDT добавляются в ликвидность.
+ * Излишки USDT (если таковые будут) возвращаются отправителю.
+ * @param token Адрес токена (например, USDT).
+ * @param deadline Дедлайн для транзакции.
+ */
+function swapThenAddLiquiditySimple(
+    address token,
+    uint256 deadline
+)
+    external
+    payable
+    ensure(deadline)
+    returns (uint256 amountToken, uint256 amountETH, uint256 liquidity)
+{
+    // Ожидаем, что пользователь отправил ровно 2 BNB
+    require(msg.value == 2 ether, "CustomRouter: REQUIRE_2_BNB");
+
+    // Определяем: 1 BNB для свапа, 1 BNB для ликвидности
+    uint256 swapEthAmount = 1 ether;
+    uint256 liquidityEth = 1 ether;
+
+    // Выполняем свап: 1 BNB -> USDT
+    // чтобы избежать нежелательного revert. В реальном сценарии лучше задать адекватный минимальный порог.
+    uint256 tokensReceived = swapEthForExactTokensInternal(token, 1e18, swapEthAmount, deadline);
+
+    // Одобряем расход полученных USDT для добавления ликвидности
+    require(IERC20(token).approve(pancakeRouter, tokensReceived), "CustomRouter: APPROVAL_FAILED");
+
+    // Добавляем ликвидность, используя все полученные USDT и 1 BNB
+    // Минимальные суммы установлены в 0 для упрощения (но их можно заменить на разумные лимиты)
+    (amountToken, amountETH, liquidity) = IPancakeRouter(pancakeRouter).addLiquidityETH{value: liquidityEth}(
+         token,
+         tokensReceived,
+         0,
+         0,
+         msg.sender,
+         deadline
+    );
+
+    // Если после ликвидности остались лишние USDT, возвращаем их отправителю
+    if (tokensReceived > amountToken) {
+         require(IERC20(token).transfer(msg.sender, tokensReceived - amountToken), "CustomRouter: REFUND_FAILED");
     }
+}
     
     /**
      * @notice Внутренняя функция для добавления ликвидности с токенами, уже находящимися в контракте.

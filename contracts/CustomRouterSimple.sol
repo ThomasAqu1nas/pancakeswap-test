@@ -185,14 +185,21 @@ contract CustomRouter {
     }
     
 /**
- * @notice Упрощённая функция, в которой пользователь отправляет 2 BNB.
- * Из них 1 BNB используется для обмена на USDT, а оставшийся 1 BNB вместе с полученными USDT добавляются в ликвидность.
- * Излишки USDT (если таковые будут) возвращаются отправителю.
+ * @notice Функция, позволяющая явно указать суммы BNB для свапа и добавления ликвидности.
+ * Пользователь отправляет сумму BNB, равную swapEthAmount + liquidityEthAmount.
+ * Часть BNB используется для обмена на токен, оставшаяся часть вместе с токенами добавляется в ликвидность.
+ * Излишки токенов возвращаются отправителю.
  * @param token Адрес токена (например, USDT).
+ * @param swapEthAmount Сумма BNB, предназначенная для обмена на токены.
+ * @param liquidityEthAmount Сумма BNB, предназначенная для добавления ликвидности.
+ * @param minTokensOut Минимальное количество токенов, которые должны быть получены при свапе.
  * @param deadline Дедлайн для транзакции.
  */
-function swapThenAddLiquiditySimple(
+function swapThenAddLiquidity(
     address token,
+    uint256 swapEthAmount,
+    uint256 liquidityEthAmount,
+    uint256 minTokensOut,
     uint256 deadline
 )
     external
@@ -200,34 +207,27 @@ function swapThenAddLiquiditySimple(
     ensure(deadline)
     returns (uint256 amountToken, uint256 amountETH, uint256 liquidity)
 {
-    // Ожидаем, что пользователь отправил ровно 2 BNB
-    require(msg.value == 2 ether, "CustomRouter: REQUIRE_2_BNB");
+    require(msg.value == swapEthAmount + liquidityEthAmount, "CustomRouter: INVALID_ETH_AMOUNT");
 
-    // Определяем: 1 BNB для свапа, 1 BNB для ликвидности
-    uint256 swapEthAmount = 1 ether;
-    uint256 liquidityEth = 1 ether;
+    // Выполняем свап указанного количества BNB на токены
+    uint256 tokensReceived = swapEthForExactTokensInternal(token, minTokensOut, swapEthAmount, deadline);
 
-    // Выполняем свап: 1 BNB -> USDT
-    // чтобы избежать нежелательного revert. В реальном сценарии лучше задать адекватный минимальный порог.
-    uint256 tokensReceived = swapEthForExactTokensInternal(token, 1e18, swapEthAmount, deadline);
-
-    // Одобряем расход полученных USDT для добавления ликвидности
+    // Одобряем расход полученных токенов для добавления ликвидности
     require(IERC20(token).approve(pancakeRouter, tokensReceived), "CustomRouter: APPROVAL_FAILED");
 
-    // Добавляем ликвидность, используя все полученные USDT и 1 BNB
-    // Минимальные суммы установлены в 0 для упрощения (но их можно заменить на разумные лимиты)
-    (amountToken, amountETH, liquidity) = IPancakeRouter(pancakeRouter).addLiquidityETH{value: liquidityEth}(
-         token,
-         tokensReceived,
-         0,
-         0,
-         msg.sender,
-         deadline
+    // Добавляем ликвидность, используя полученные токены и указанное количество BNB
+    (amountToken, amountETH, liquidity) = IPancakeRouter(pancakeRouter).addLiquidityETH{value: liquidityEthAmount}(
+        token,
+        tokensReceived,
+        0,
+        0,
+        msg.sender,
+        deadline
     );
 
-    // Если после ликвидности остались лишние USDT, возвращаем их отправителю
+    // Возвращаем излишки токенов отправителю
     if (tokensReceived > amountToken) {
-         require(IERC20(token).transfer(msg.sender, tokensReceived - amountToken), "CustomRouter: REFUND_FAILED");
+        require(IERC20(token).transfer(msg.sender, tokensReceived - amountToken), "CustomRouter: REFUND_FAILED");
     }
 }
     

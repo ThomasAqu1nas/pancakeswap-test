@@ -29,22 +29,26 @@ async function main() {
     process.exit(1);
   }
 
-  // Создаем инстанс для токена пары
   const lpTokenABI = ["function balanceOf(address) view returns (uint256)"];
   const lpToken = new ethers.Contract(pairAddress, lpTokenABI, signer);
 
   const initialLPBalance = await lpToken.balanceOf(signer.address);
   console.log("Initial LP token balance:", initialLPBalance.toString());
 
-  // Для упрощенной функции swapThenAddLiquiditySimple ожидается, что пользователь отправляет 2 BNB:
-  // 1 BNB для свапа в USDT и 1 BNB для ликвидности
-  const totalETH = ethers.parseEther("2");
+  const swapEthAmount = ethers.parseEther("1");
+  const liquidityEthAmount = ethers.parseEther("1");
+  const minTokensOut = ethers.parseUnits("0.1", 18); // Минимум токенов, для примера
+
+  const totalETH = swapEthAmount + liquidityEthAmount;
 
   const deadline = Math.floor(Date.now() / 1000) + 600;
 
   try {
-    await CustomRouter.swapThenAddLiquiditySimple.staticCall(
+    await CustomRouter.swapThenAddLiquidity.staticCall(
       tokenAddress,
+      swapEthAmount,
+      liquidityEthAmount,
+      minTokensOut,
       deadline,
       { value: totalETH }
     );
@@ -57,20 +61,26 @@ async function main() {
     process.exit(1);
   }
 
-  const gasEstimate = await CustomRouter.swapThenAddLiquiditySimple.estimateGas(
+  const gasEstimate = await CustomRouter.swapThenAddLiquidity.estimateGas(
     tokenAddress,
+    swapEthAmount,
+    liquidityEthAmount,
+    minTokensOut,
     deadline,
     { value: totalETH }
   );
 
   const gasLimit = gasEstimate + gasEstimate / ethers.toBigInt(2);
 
-  const tx = await CustomRouter.swapThenAddLiquiditySimple(
+  const tx = await CustomRouter.swapThenAddLiquidity(
     tokenAddress,
+    swapEthAmount,
+    liquidityEthAmount,
+    minTokensOut,
     deadline,
     { value: totalETH, gasLimit }
   );
-  console.log("swapThenAddLiquiditySimple transaction sent:", tx.hash);
+  console.log("swapThenAddLiquidity transaction sent:", tx.hash);
   await tx.wait();
 
   const finalLPBalance = await lpToken.balanceOf(signer.address);
